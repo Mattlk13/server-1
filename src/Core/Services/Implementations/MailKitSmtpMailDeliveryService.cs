@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Threading.Tasks;
 using Bit.Core.Utilities;
+using Bit.Core.Settings;
 using MailKit.Net.Smtp;
 using Microsoft.Extensions.Logging;
 using MimeKit;
@@ -42,14 +43,14 @@ namespace Bit.Core.Services
 
             foreach (var address in message.ToEmails)
             {
-                mimeMessage.To.Add(new MailboxAddress(address));
+                mimeMessage.To.Add(MailboxAddress.Parse(address));
             }
 
             if (message.BccEmails != null)
             {
                 foreach (var address in message.BccEmails)
                 {
-                    mimeMessage.Bcc.Add(new MailboxAddress(address));
+                    mimeMessage.Bcc.Add(MailboxAddress.Parse(address));
                 }
             }
 

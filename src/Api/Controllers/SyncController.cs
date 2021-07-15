@@ -5,13 +5,14 @@ using Microsoft.AspNetCore.Mvc;
 using Bit.Core.Models.Api;
 using Bit.Core.Services;
 using Bit.Core.Repositories;
-using Bit.Core;
 using Bit.Core.Enums;
 using Bit.Core.Exceptions;
 using System.Linq;
 using Bit.Core.Models.Table;
 using System.Collections.Generic;
+using Bit.Core.Enums.Provider;
 using Bit.Core.Models.Data;
+using Bit.Core.Settings;
 
 namespace Bit.Api.Controllers
 {
@@ -25,7 +26,9 @@ namespace Bit.Api.Controllers
         private readonly ICollectionRepository _collectionRepository;
         private readonly ICollectionCipherRepository _collectionCipherRepository;
         private readonly IOrganizationUserRepository _organizationUserRepository;
+        private readonly IProviderUserRepository _providerUserRepository;
         private readonly IPolicyRepository _policyRepository;
+        private readonly ISendRepository _sendRepository;
         private readonly GlobalSettings _globalSettings;
 
         public SyncController(
@@ -35,7 +38,9 @@ namespace Bit.Api.Controllers
             ICollectionRepository collectionRepository,
             ICollectionCipherRepository collectionCipherRepository,
             IOrganizationUserRepository organizationUserRepository,
+            IProviderUserRepository providerUserRepository,
             IPolicyRepository policyRepository,
+            ISendRepository sendRepository,
             GlobalSettings globalSettings)
         {
             _userService = userService;
@@ -44,12 +49,14 @@ namespace Bit.Api.Controllers
             _collectionRepository = collectionRepository;
             _collectionCipherRepository = collectionCipherRepository;
             _organizationUserRepository = organizationUserRepository;
+            _providerUserRepository = providerUserRepository;
             _policyRepository = policyRepository;
+            _sendRepository = sendRepository;
             _globalSettings = globalSettings;
         }
 
         [HttpGet("")]
-        public async Task<SyncResponseModel> Get([FromQuery]bool excludeDomains = false)
+        public async Task<SyncResponseModel> Get([FromQuery] bool excludeDomains = false)
         {
             var user = await _userService.GetUserByPrincipalAsync(User);
             if (user == null)
@@ -59,9 +66,15 @@ namespace Bit.Api.Controllers
 
             var organizationUserDetails = await _organizationUserRepository.GetManyDetailsByUserAsync(user.Id,
                 OrganizationUserStatusType.Confirmed);
+            var providerUserDetails = await _providerUserRepository.GetManyDetailsByUserAsync(user.Id,
+                ProviderUserStatusType.Confirmed);
+            var providerUserOrganizationDetails =
+                await _providerUserRepository.GetManyOrganizationDetailsByUserAsync(user.Id,
+                    ProviderUserStatusType.Confirmed);
             var hasEnabledOrgs = organizationUserDetails.Any(o => o.Enabled);
             var folders = await _folderRepository.GetManyByUserIdAsync(user.Id);
             var ciphers = await _cipherRepository.GetManyByUserIdAsync(user.Id, hasEnabledOrgs);
+            var sends = await _sendRepository.GetManyByUserIdAsync(user.Id);
 
             IEnumerable<CollectionDetails> collections = null;
             IDictionary<Guid, IGrouping<Guid, CollectionCipher>> collectionCiphersGroupDict = null;
@@ -76,7 +89,8 @@ namespace Bit.Api.Controllers
 
             var userTwoFactorEnabled = await _userService.TwoFactorIsEnabledAsync(user);
             var response = new SyncResponseModel(_globalSettings, user, userTwoFactorEnabled, organizationUserDetails,
-                folders, collections, ciphers, collectionCiphersGroupDict, excludeDomains, policies);
+                providerUserDetails, providerUserOrganizationDetails, folders, collections, ciphers,
+                collectionCiphersGroupDict, excludeDomains, policies, sends);
             return response;
         }
     }

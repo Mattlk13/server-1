@@ -1,6 +1,6 @@
 ﻿using System.Collections.Generic;
 using System.Globalization;
-using Bit.Core;
+using Bit.Core.Settings;
 using Bit.Core.Utilities;
 using IdentityModel;
 using Microsoft.AspNetCore.Builder;
@@ -39,7 +39,7 @@ namespace Bit.Notifications
                 config.AddPolicy("Application", policy =>
                 {
                     policy.RequireAuthenticatedUser();
-                    policy.RequireClaim(JwtClaimTypes.AuthenticationMethod, "Application");
+                    policy.RequireClaim(JwtClaimTypes.AuthenticationMethod, "Application", "external");
                     policy.RequireClaim(JwtClaimTypes.Scope, "api");
                 });
                 config.AddPolicy("Internal", policy =>
@@ -52,10 +52,8 @@ namespace Bit.Notifications
             // SignalR
             var signalRServerBuilder = services.AddSignalR().AddMessagePackProtocol(options =>
             {
-                options.FormatterResolvers = new List<MessagePack.IFormatterResolver>()
-                {
-                    MessagePack.Resolvers.ContractlessStandardResolver.Instance
-                };
+                options.SerializerOptions = MessagePack.MessagePackSerializerOptions.Standard
+                    .WithResolver(MessagePack.Resolvers.ContractlessStandardResolver.Instance);
             });
             if (CoreHelpers.SettingHasValue(globalSettings.Notifications?.RedisConnectionString))
             {

@@ -15,17 +15,20 @@ namespace Bit.Core.Models.Business
         public UserLicense()
         { }
 
-        public UserLicense(User user, SubscriptionInfo subscriptionInfo, ILicensingService licenseService)
+        public UserLicense(User user, SubscriptionInfo subscriptionInfo, ILicensingService licenseService,
+            int? version = null)
         {
             LicenseKey = user.LicenseKey;
             Id = user.Id;
             Name = user.Name;
             Email = user.Email;
-            Version = 1;
+            Version = version.GetValueOrDefault(1);
             Premium = user.Premium;
             MaxStorageGb = user.MaxStorageGb;
             Issued = DateTime.UtcNow;
-            Expires = subscriptionInfo?.UpcomingInvoice?.Date?.AddDays(7);
+            Expires = subscriptionInfo?.UpcomingInvoice?.Date != null ?
+                subscriptionInfo.UpcomingInvoice.Date.Value.AddDays(7) :
+                user.PremiumExpirationDate?.AddDays(7);
             Refresh = subscriptionInfo?.UpcomingInvoice?.Date;
             Trial = (subscriptionInfo?.Subscription?.TrialEndDate.HasValue ?? false) &&
                 subscriptionInfo.Subscription.TrialEndDate.Value > DateTime.UtcNow;
@@ -34,13 +37,13 @@ namespace Bit.Core.Models.Business
             Signature = Convert.ToBase64String(licenseService.SignLicense(this));
         }
 
-        public UserLicense(User user, ILicensingService licenseService)
+        public UserLicense(User user, ILicensingService licenseService, int? version = null)
         {
             LicenseKey = user.LicenseKey;
             Id = user.Id;
             Name = user.Name;
             Email = user.Email;
-            Version = 1;
+            Version = version.GetValueOrDefault(1);
             Premium = user.Premium;
             MaxStorageGb = user.MaxStorageGb;
             Issued = DateTime.UtcNow;

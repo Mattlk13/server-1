@@ -14,10 +14,19 @@ using Dapper;
 using System.Globalization;
 using System.Web;
 using Microsoft.AspNetCore.DataProtection;
+using Bit.Core.Settings;
 using Bit.Core.Enums;
+using Bit.Core.Context;
 using System.Threading.Tasks;
 using Microsoft.Azure.Storage;
 using Microsoft.Azure.Storage.Blob;
+using Bit.Core.Models.Table;
+using IdentityModel;
+using System.Text.Json;
+using Bit.Core.Enums.Provider;
+using Azure.Storage.Queues;
+using Azure.Storage.Queues.Models;
+using System.Threading;
 
 namespace Bit.Core.Utilities
 {
@@ -143,6 +152,55 @@ namespace Bit.Core.Utilities
             return table;
         }
 
+        public static DataTable ToTvp(this IEnumerable<OrganizationUser> orgUsers)
+        {
+            var table = new DataTable();
+            table.SetTypeName("[dbo].[OrganizationUserType]");
+
+            var columnData = new List<(string name, Type type, Func<OrganizationUser, object> getter)>
+            {
+                (nameof(OrganizationUser.Id), typeof(Guid), ou => ou.Id),
+                (nameof(OrganizationUser.OrganizationId), typeof(Guid), ou => ou.OrganizationId),
+                (nameof(OrganizationUser.UserId), typeof(Guid), ou => ou.UserId),
+                (nameof(OrganizationUser.Email), typeof(string), ou => ou.Email),
+                (nameof(OrganizationUser.Key), typeof(string), ou => ou.Key),
+                (nameof(OrganizationUser.Status), typeof(byte), ou => ou.Status),
+                (nameof(OrganizationUser.Type), typeof(byte), ou => ou.Type),
+                (nameof(OrganizationUser.AccessAll), typeof(bool), ou => ou.AccessAll),
+                (nameof(OrganizationUser.ExternalId), typeof(string), ou => ou.ExternalId),
+                (nameof(OrganizationUser.CreationDate), typeof(DateTime), ou => ou.CreationDate),
+                (nameof(OrganizationUser.RevisionDate), typeof(DateTime), ou => ou.RevisionDate),
+                (nameof(OrganizationUser.Permissions), typeof(string), ou => ou.Permissions),
+                (nameof(OrganizationUser.ResetPasswordKey), typeof(string), ou => ou.ResetPasswordKey),
+            };
+
+            foreach (var (name, type, getter) in columnData)
+            {
+                var column = new DataColumn(name, type);
+                table.Columns.Add(column);
+            }
+
+            foreach (var orgUser in orgUsers ?? new OrganizationUser[] { })
+            {
+                var row = table.NewRow();
+                foreach (var (name, type, getter) in columnData)
+                {
+                    var val = getter(orgUser);
+                    if (val == null)
+                    {
+                        row[name] = DBNull.Value;
+                    }
+                    else
+                    {
+                        row[name] = val;
+                    }
+                }
+                table.Rows.Add(row);
+            }
+
+            return table;
+        }
+
         public static string CleanCertificateThumbprint(string thumbprint)
         {
             // Clean possible garbage characters from thumbprint copy/paste
@@ -188,13 +246,13 @@ namespace Bit.Core.Utilities
         {
             var blobClient = cloudStorageAccount.CreateCloudBlobClient();
             var containerRef = blobClient.GetContainerReference(container);
-            if (await containerRef.ExistsAsync())
+            if (await containerRef.ExistsAsync().ConfigureAwait(false))
             {
                 var blobRef = containerRef.GetBlobReference(file);
-                if (await blobRef.ExistsAsync())
+                if (await blobRef.ExistsAsync().ConfigureAwait(false))
                 {
                     var blobBytes = new byte[blobRef.Properties.Length];
-                    await blobRef.DownloadToByteArrayAsync(blobBytes, 0);
+                    await blobRef.DownloadToByteArrayAsync(blobBytes, 0).ConfigureAwait(false);
                     return new X509Certificate2(blobBytes, password);
                 }
             }
@@ -347,7 +405,7 @@ namespace Bit.Core.Utilities
             }
             else
             {
-                return absoluteSize.ToString("0 Bytes"); // Byte
+                return size.ToString("0 Bytes"); // Byte
             }
 
             // Divide by 1024 to get fractional value
@@ -357,6 +415,11 @@ namespace Bit.Core.Utilities
             return readable.ToString("0.## ") + suffix;
         }
 
+        /// <summary>
+        /// Creates a clone of the given object through serializing to json and deserializing.
+        /// This method is subject to the limitations of Newstonsoft. For example, properties with
+        /// inaccessible setters will not be set.
+        /// </summary>
         public static T CloneObject<T>(T obj)
         {
             return JsonConvert.DeserializeObject<T>(JsonConvert.SerializeObject(obj));
@@ -442,6 +505,21 @@ namespace Bit.Core.Utilities
                 return val.ToString().ToLowerInvariant();
             }
 
+            if (val is PlanType planType)
+            {
+                return planType switch
+                {
+                    PlanType.Free => "Free",
+                    PlanType.FamiliesAnnually2019 => "FamiliesAnnually",
+                    PlanType.TeamsMonthly2019 => "TeamsMonthly",
+                    PlanType.TeamsAnnually2019 => "TeamsAnnually",
+                    PlanType.EnterpriseMonthly2019 => "EnterpriseMonthly",
+                    PlanType.EnterpriseAnnually2019 => "EnterpriseAnnually",
+                    PlanType.Custom => "Custom",
+                    _ => ((byte)planType).ToString(),
+                };
+            }
+
             return val.ToString();
         }
 
@@ -479,9 +557,10 @@ namespace Bit.Core.Utilities
 
         public static string SanitizeForEmail(string value)
         {
-            return value.Replace("@", "[at]")
+            var cleanedValue = value.Replace("@", "[at]")
                 .Replace("http://", string.Empty)
                 .Replace("https://", string.Empty);
+            return HttpUtility.HtmlEncode(cleanedValue);
         }
 
         public static string DateTimeToTableStorageKey(DateTime? date = null)
@@ -532,13 +611,19 @@ namespace Bit.Core.Utilities
         public static bool UserInviteTokenIsValid(IDataProtector protector, string token, string userEmail,
             Guid orgUserId, GlobalSettings globalSettings)
         {
+            return TokenIsValid("OrganizationUserInvite", protector, token, userEmail, orgUserId, globalSettings);
+        }
+
+        public static bool TokenIsValid(string firstTokenPart, IDataProtector protector, string token, string userEmail,
+            Guid id, GlobalSettings globalSettings)
+        {
             var invalid = true;
             try
             {
                 var unprotectedData = protector.Unprotect(token);
                 var dataParts = unprotectedData.Split(' ');
-                if (dataParts.Length == 4 && dataParts[0] == "OrganizationUserInvite" &&
-                    new Guid(dataParts[1]) == orgUserId &&
+                if (dataParts.Length == 4 && dataParts[0] == firstTokenPart &&
+                    new Guid(dataParts[1]) == id &&
                     dataParts[2].Equals(userEmail, StringComparison.InvariantCultureIgnoreCase))
                 {
                     var creationTime = FromEpocMilliseconds(Convert.ToInt64(dataParts[3]));
@@ -605,6 +690,236 @@ namespace Bit.Core.Utilities
                 origin == "file://" ||
                 // Product website
                 (!globalSettings.SelfHosted && origin == "https://bitwarden.com");
+        }
+
+        public static X509Certificate2 GetIdentityServerCertificate(GlobalSettings globalSettings)
+        {
+            if (globalSettings.SelfHosted &&
+                SettingHasValue(globalSettings.IdentityServer.CertificatePassword)
+                && File.Exists("identity.pfx"))
+            {
+                return GetCertificate("identity.pfx",
+                    globalSettings.IdentityServer.CertificatePassword);
+            }
+            else if (SettingHasValue(globalSettings.IdentityServer.CertificateThumbprint))
+            {
+                return GetCertificate(
+                    globalSettings.IdentityServer.CertificateThumbprint);
+            }
+            else if (!globalSettings.SelfHosted &&
+                SettingHasValue(globalSettings.Storage?.ConnectionString) &&
+                SettingHasValue(globalSettings.IdentityServer.CertificatePassword))
+            {
+                var storageAccount = CloudStorageAccount.Parse(globalSettings.Storage.ConnectionString);
+                return GetBlobCertificateAsync(storageAccount, "certificates",
+                    "identity.pfx", globalSettings.IdentityServer.CertificatePassword).GetAwaiter().GetResult();
+            }
+            return null;
+        }
+
+        public static Dictionary<string, object> AdjustIdentityServerConfig(Dictionary<string, object> configDict,
+            string publicServiceUri, string internalServiceUri)
+        {
+            var dictReplace = new Dictionary<string, object>();
+            foreach (var item in configDict)
+            {
+                if (item.Key == "authorization_endpoint" && item.Value is string val)
+                {
+                    var uri = new Uri(val);
+                    dictReplace.Add(item.Key, string.Concat(publicServiceUri, uri.LocalPath));
+                }
+                else if ((item.Key == "jwks_uri" || item.Key.EndsWith("_endpoint")) && item.Value is string val2)
+                {
+                    var uri = new Uri(val2);
+                    dictReplace.Add(item.Key, string.Concat(internalServiceUri, uri.LocalPath));
+                }
+            }
+            foreach (var replace in dictReplace)
+            {
+                configDict[replace.Key] = replace.Value;
+            }
+            return configDict;
+        }
+
+        public static List<KeyValuePair<string, string>> BuildIdentityClaims(User user, ICollection<CurrentContentOrganization> orgs,
+            ICollection<CurrentContentProvider> providers, bool isPremium)
+        {
+            var claims = new List<KeyValuePair<string, string>>()
+            {
+                new KeyValuePair<string, string>("premium", isPremium ? "true" : "false"),
+                new KeyValuePair<string, string>(JwtClaimTypes.Email, user.Email),
+                new KeyValuePair<string, string>(JwtClaimTypes.EmailVerified, user.EmailVerified ? "true" : "false"),
+                new KeyValuePair<string, string>("sstamp", user.SecurityStamp)
+            };
+
+            if (!string.IsNullOrWhiteSpace(user.Name))
+            {
+                claims.Add(new KeyValuePair<string, string>(JwtClaimTypes.Name, user.Name));
+            }
+
+            // Orgs that this user belongs to
+            if (orgs.Any())
+            {
+                foreach (var group in orgs.GroupBy(o => o.Type))
+                {
+                    switch (group.Key)
+                    {
+                        case Enums.OrganizationUserType.Owner:
+                            foreach (var org in group)
+                            {
+                                claims.Add(new KeyValuePair<string, string>("orgowner", org.Id.ToString()));
+                            }
+                            break;
+                        case Enums.OrganizationUserType.Admin:
+                            foreach (var org in group)
+                            {
+                                claims.Add(new KeyValuePair<string, string>("orgadmin", org.Id.ToString()));
+                            }
+                            break;
+                        case Enums.OrganizationUserType.Manager:
+                            foreach (var org in group)
+                            {
+                                claims.Add(new KeyValuePair<string, string>("orgmanager", org.Id.ToString()));
+                            }
+                            break;
+                        case Enums.OrganizationUserType.User:
+                            foreach (var org in group)
+                            {
+                                claims.Add(new KeyValuePair<string, string>("orguser", org.Id.ToString()));
+                            }
+                            break;
+                        case Enums.OrganizationUserType.Custom:
+                            foreach (var org in group)
+                            {
+                                claims.Add(new KeyValuePair<string, string>("orgcustom", org.Id.ToString()));
+
+                                if (org.Permissions.AccessBusinessPortal)
+                                {
+                                    claims.Add(new KeyValuePair<string, string>("accessbusinessportal", org.Id.ToString()));
+                                }
+
+                                if (org.Permissions.AccessEventLogs)
+                                {
+                                    claims.Add(new KeyValuePair<string, string>("accesseventlogs", org.Id.ToString()));
+                                }
+
+                                if (org.Permissions.AccessImportExport)
+                                {
+                                    claims.Add(new KeyValuePair<string, string>("accessimportexport", org.Id.ToString()));
+                                }
+
+                                if (org.Permissions.AccessReports)
+                                {
+                                    claims.Add(new KeyValuePair<string, string>("accessreports", org.Id.ToString()));
+                                }
+
+                                if (org.Permissions.ManageAllCollections)
+                                {
+                                    claims.Add(new KeyValuePair<string, string>("manageallcollections", org.Id.ToString()));
+                                }
+
+                                if (org.Permissions.ManageAssignedCollections)
+                                {
+                                    claims.Add(new KeyValuePair<string, string>("manageassignedcollections", org.Id.ToString()));
+                                }
+
+                                if (org.Permissions.ManageGroups)
+                                {
+                                    claims.Add(new KeyValuePair<string, string>("managegroups", org.Id.ToString()));
+                                }
+
+                                if (org.Permissions.ManagePolicies)
+                                {
+                                    claims.Add(new KeyValuePair<string, string>("managepolicies", org.Id.ToString()));
+                                }
+
+                                if (org.Permissions.ManageSso)
+                                {
+                                    claims.Add(new KeyValuePair<string, string>("managesso", org.Id.ToString()));
+                                }
+
+                                if (org.Permissions.ManageUsers)
+                                {
+                                    claims.Add(new KeyValuePair<string, string>("manageusers", org.Id.ToString()));
+                                }
+                                
+                                if (org.Permissions.ManageResetPassword)
+                                {
+                                    claims.Add(new KeyValuePair<string, string>("manageresetpassword", org.Id.ToString()));
+                                }
+                            }
+                            break;
+                        default:
+                            break;
+                    }
+                }
+            }
+            
+            if (providers.Any())
+            {
+                foreach (var group in providers.GroupBy(o => o.Type))
+                {
+                    switch (group.Key)
+                    {
+                        case ProviderUserType.ProviderAdmin:
+                            foreach (var provider in group)
+                            {
+                                claims.Add(new KeyValuePair<string, string>("providerprovideradmin", provider.Id.ToString()));
+                            }
+                            break;
+                        case ProviderUserType.ServiceUser:
+                            foreach (var provider in group)
+                            {
+                                claims.Add(new KeyValuePair<string, string>("providerserviceuser", provider.Id.ToString()));
+                            }
+                            break;
+                    }
+                }
+            }
+            
+            return claims;
+        }
+
+        public static T LoadClassFromJsonData<T>(string jsonData) where T : new()
+        {
+            if (string.IsNullOrWhiteSpace(jsonData))
+            {
+                return new T();
+            }
+
+            var options = new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            };
+
+            return System.Text.Json.JsonSerializer.Deserialize<T>(jsonData, options);
+        }
+
+        public static ICollection<T> AddIfNotExists<T>(this ICollection<T> list, T item)
+        {
+            if (list.Contains(item))
+            {
+                return list;
+            }
+            list.Add(item);
+            return list;
+        }
+
+        public static string DecodeMessageText(this QueueMessage message)
+        {
+            var text = message?.MessageText;
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return text;
+            }
+            try
+            {
+                return Base64DecodeString(text);
+            }
+            catch
+            {
+                return text;
+            }
         }
     }
 }

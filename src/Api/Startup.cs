@@ -5,7 +5,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Bit.Api.Utilities;
 using Bit.Core;
+using Bit.Core.Context;
 using Bit.Core.Identity;
+using Bit.Core.Settings;
 using Newtonsoft.Json.Serialization;
 using AspNetCoreRateLimit;
 using Stripe;
@@ -16,6 +18,11 @@ using Microsoft.IdentityModel.Logging;
 using Microsoft.Extensions.Hosting;
 using Microsoft.OpenApi.Models;
 using System.Collections.Generic;
+using System;
+
+#if !OSS
+using Bit.CommCore.Utilities;
+#endif
 
 namespace Bit.Api
 {
@@ -33,8 +40,6 @@ namespace Bit.Api
 
         public void ConfigureServices(IServiceCollection services)
         {
-            var provider = services.BuildServiceProvider();
-
             // Options
             services.AddOptions();
 
@@ -49,6 +54,12 @@ namespace Bit.Api
             // Data Protection
             services.AddCustomDataProtectionServices(Environment, globalSettings);
 
+            // Event Grid
+            if (!string.IsNullOrWhiteSpace(globalSettings.EventGridKey))
+            {
+                ApiHelpers.EventGridKey = globalSettings.EventGridKey;
+            }
+
             // Stripe Billing
             StripeConfiguration.ApiKey = globalSettings.StripeApiKey;
 
@@ -56,7 +67,7 @@ namespace Bit.Api
             services.AddSqlServerRepositories(globalSettings);
 
             // Context
-            services.AddScoped<CurrentContext>();
+            services.AddScoped<ICurrentContext, CurrentContext>();
 
             // Caching
             services.AddMemoryCache();
@@ -110,6 +121,13 @@ namespace Bit.Api
             // Services
             services.AddBaseServices();
             services.AddDefaultServices(globalSettings);
+            services.AddCoreLocalizationServices();
+
+            #if OSS
+                services.AddOosServices();
+            #else
+                services.AddCommCoreServices();
+            #endif
 
             // MVC
             services.AddMvc(config =>
@@ -125,6 +143,8 @@ namespace Bit.Api
             });
 
             services.AddSwagger(globalSettings);
+            Jobs.JobsHostedService.AddJobsServices(services);
+            services.AddHostedService<Jobs.JobsHostedService>();
 
             if (globalSettings.SelfHosted)
             {
@@ -161,6 +181,9 @@ namespace Bit.Api
             {
                 app.UseForwardedHeaders(globalSettings);
             }
+
+            // Add localization
+            app.UseCoreLocalization();
 
             // Add static files to the request pipeline.
             app.UseStaticFiles();

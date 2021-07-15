@@ -1,9 +1,11 @@
 ﻿using System;
 using System.Threading.Tasks;
-using Bit.Core.Models.Table;
+using Bit.Core.Context;
 using Bit.Core.Enums;
-using Newtonsoft.Json;
 using Bit.Core.Models;
+using Bit.Core.Models.Table;
+using Bit.Core.Settings;
+using Newtonsoft.Json;
 using Azure.Storage.Queues;
 using Microsoft.AspNetCore.Http;
 using System.Collections.Generic;
@@ -135,6 +137,36 @@ namespace Bit.Core.Services
             await SendMessageAsync(type, message, false);
         }
 
+        public async Task PushSyncSendCreateAsync(Send send)
+        {
+            await PushSendAsync(send, PushType.SyncSendCreate);
+        }
+
+        public async Task PushSyncSendUpdateAsync(Send send)
+        {
+            await PushSendAsync(send, PushType.SyncSendUpdate);
+        }
+
+        public async Task PushSyncSendDeleteAsync(Send send)
+        {
+            await PushSendAsync(send, PushType.SyncSendDelete);
+        }
+
+        private async Task PushSendAsync(Send send, PushType type)
+        {
+            if (send.UserId.HasValue)
+            {
+                var message = new SyncSendPushNotification
+                {
+                    Id = send.Id,
+                    UserId = send.UserId.Value,
+                    RevisionDate = send.RevisionDate
+                };
+
+                await SendMessageAsync(type, message, true);
+            }
+        }
+
         private async Task SendMessageAsync<T>(PushType type, T payload, bool excludeCurrentContext)
         {
             var contextId = GetContextIdentifier(excludeCurrentContext);
@@ -151,7 +183,7 @@ namespace Bit.Core.Services
             }
 
             var currentContext = _httpContextAccessor?.HttpContext?.
-                RequestServices.GetService(typeof(CurrentContext)) as CurrentContext;
+                RequestServices.GetService(typeof(ICurrentContext)) as ICurrentContext;
             return currentContext?.DeviceIdentifier;
         }
 

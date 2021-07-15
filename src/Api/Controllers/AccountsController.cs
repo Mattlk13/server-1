@@ -1,20 +1,24 @@
-﻿using System;
-using System.Threading.Tasks;
+﻿using Bit.Api.Utilities;
+using Bit.Core;
+using Bit.Core.Enums;
+using Bit.Core.Exceptions;
+using Bit.Core.Models.Api;
+using Bit.Core.Models.Api.Request.Accounts;
+using Bit.Core.Models.Business;
+using Bit.Core.Models.Data;
+using Bit.Core.Models.Table;
+using Bit.Core.Repositories;
+using Bit.Core.Services;
+using Bit.Core.Settings;
+using Bit.Core.Utilities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Bit.Core.Models.Api;
-using Bit.Core.Exceptions;
-using Bit.Core.Services;
-using Bit.Core.Enums;
-using System.Linq;
-using Bit.Core.Repositories;
-using Bit.Core.Utilities;
-using Bit.Core;
-using Bit.Core.Models.Business;
-using Bit.Api.Utilities;
-using Bit.Core.Models.Table;
+using System;
 using System.Collections.Generic;
-using Bit.Core.Models.Data;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using Bit.Core.Enums.Provider;
 
 namespace Bit.Api.Controllers
 {
@@ -22,30 +26,43 @@ namespace Bit.Api.Controllers
     [Authorize("Application")]
     public class AccountsController : Controller
     {
-        private readonly IUserService _userService;
-        private readonly IUserRepository _userRepository;
+        private readonly GlobalSettings _globalSettings;
         private readonly ICipherRepository _cipherRepository;
         private readonly IFolderRepository _folderRepository;
+        private readonly IOrganizationService _organizationService;
         private readonly IOrganizationUserRepository _organizationUserRepository;
+        private readonly IProviderUserRepository _providerUserRepository;
         private readonly IPaymentService _paymentService;
-        private readonly GlobalSettings _globalSettings;
+        private readonly IUserRepository _userRepository;
+        private readonly IUserService _userService;
+        private readonly ISendRepository _sendRepository;
+        private readonly ISendService _sendService;
 
         public AccountsController(
-            IUserService userService,
-            IUserRepository userRepository,
+            GlobalSettings globalSettings,
             ICipherRepository cipherRepository,
             IFolderRepository folderRepository,
+            IOrganizationService organizationService,
             IOrganizationUserRepository organizationUserRepository,
+            IProviderUserRepository providerUserRepository,
             IPaymentService paymentService,
-            GlobalSettings globalSettings)
+            ISsoUserRepository ssoUserRepository,
+            IUserRepository userRepository,
+            IUserService userService,
+            ISendRepository sendRepository,
+            ISendService sendService)
         {
-            _userService = userService;
-            _userRepository = userRepository;
             _cipherRepository = cipherRepository;
             _folderRepository = folderRepository;
-            _organizationUserRepository = organizationUserRepository;
-            _paymentService = paymentService;
             _globalSettings = globalSettings;
+            _organizationService = organizationService;
+            _organizationUserRepository = organizationUserRepository;
+            _providerUserRepository = providerUserRepository;
+            _paymentService = paymentService;
+            _userRepository = userRepository;
+            _userService = userService;
+            _sendRepository = sendRepository;
+            _sendService = sendService;
         }
 
         [HttpPost("prelogin")]
@@ -195,6 +212,30 @@ namespace Bit.Api.Controllers
             throw new BadRequestException(ModelState);
         }
 
+        [HttpPost("set-password")]
+        public async Task PostSetPasswordAsync([FromBody]SetPasswordRequestModel model)
+        {
+            var user = await _userService.GetUserByPrincipalAsync(User);
+            if (user == null)
+            {
+                throw new UnauthorizedAccessException();
+            }
+
+            var result = await _userService.SetPasswordAsync(model.ToUser(user), model.MasterPasswordHash, model.Key, 
+                model.OrgIdentifier);
+            if (result.Succeeded)
+            {
+                return;
+            }
+
+            foreach (var error in result.Errors)
+            {
+                ModelState.AddModelError(string.Empty, error.Description);
+            }
+
+            throw new BadRequestException(ModelState);
+        }
+
         [HttpPost("verify-password")]
         public async Task PostVerifyPassword([FromBody]VerifyPasswordRequestModel model)
         {
@@ -248,26 +289,28 @@ namespace Bit.Api.Controllers
                 throw new UnauthorizedAccessException();
             }
 
-            var existingCiphers = await _cipherRepository.GetManyByUserIdAsync(user.Id);
-            var ciphersDict = model.Ciphers?.ToDictionary(c => c.Id.Value);
             var ciphers = new List<Cipher>();
-            if (existingCiphers.Any() && ciphersDict != null)
+            if (model.Ciphers.Any())
             {
-                foreach (var cipher in existingCiphers.Where(c => ciphersDict.ContainsKey(c.Id)))
-                {
-                    ciphers.Add(ciphersDict[cipher.Id].ToCipher(cipher));
-                }
+                var existingCiphers = await _cipherRepository.GetManyByUserIdAsync(user.Id);
+                ciphers.AddRange(existingCiphers
+                    .Join(model.Ciphers, c => c.Id, c => c.Id, (existing, c) => c.ToCipher(existing)));
             }
 
-            var existingFolders = await _folderRepository.GetManyByUserIdAsync(user.Id);
-            var foldersDict = model.Folders?.ToDictionary(f => f.Id);
             var folders = new List<Folder>();
-            if (existingFolders.Any() && foldersDict != null)
+            if (model.Folders.Any())
             {
-                foreach (var folder in existingFolders.Where(f => foldersDict.ContainsKey(f.Id)))
-                {
-                    folders.Add(foldersDict[folder.Id].ToFolder(folder));
-                }
+                var existingFolders = await _folderRepository.GetManyByUserIdAsync(user.Id);
+                folders.AddRange(existingFolders
+                    .Join(model.Folders, f => f.Id, f => f.Id, (existing, f) => f.ToFolder(existing)));
+            }
+
+            var sends = new List<Send>();
+            if (model.Sends?.Any() == true)
+            {
+                var existingSends = await _sendRepository.GetManyByUserIdAsync(user.Id);
+                sends.AddRange(existingSends
+                    .Join(model.Sends, s => s.Id, s => s.Id, (existing, s) => s.ToSend(existing, _sendService)));
             }
 
             var result = await _userService.UpdateKeyAsync(
@@ -276,7 +319,8 @@ namespace Bit.Api.Controllers
                 model.Key,
                 model.PrivateKey,
                 ciphers,
-                folders);
+                folders,
+                sends);
 
             if (result.Succeeded)
             {
@@ -327,8 +371,13 @@ namespace Bit.Api.Controllers
 
             var organizationUserDetails = await _organizationUserRepository.GetManyDetailsByUserAsync(user.Id,
                 OrganizationUserStatusType.Confirmed);
-            var response = new ProfileResponseModel(user, organizationUserDetails,
-                await _userService.TwoFactorIsEnabledAsync(user));
+            var providerUserDetails = await _providerUserRepository.GetManyDetailsByUserAsync(user.Id,
+                ProviderUserStatusType.Confirmed);
+            var providerUserOrganizationDetails =
+                await _providerUserRepository.GetManyOrganizationDetailsByUserAsync(user.Id,
+                    ProviderUserStatusType.Confirmed);
+            var response = new ProfileResponseModel(user, organizationUserDetails, providerUserDetails,
+                providerUserOrganizationDetails, await _userService.TwoFactorIsEnabledAsync(user));
             return response;
         }
 
@@ -353,7 +402,7 @@ namespace Bit.Api.Controllers
             }
 
             await _userService.SaveUserAsync(model.ToUser(user));
-            var response = new ProfileResponseModel(user, null, await _userService.TwoFactorIsEnabledAsync(user));
+            var response = new ProfileResponseModel(user, null, null, null, await _userService.TwoFactorIsEnabledAsync(user));
             return response;
         }
 
@@ -504,7 +553,7 @@ namespace Bit.Api.Controllers
                     BillingAddressCountry = model.Country,
                     BillingAddressPostalCode = model.PostalCode,
                 });
-            var profile = new ProfileResponseModel(user, null, await _userService.TwoFactorIsEnabledAsync(user));
+            var profile = new ProfileResponseModel(user, null, null, null, await _userService.TwoFactorIsEnabledAsync(user));
             return new PaymentResponseModel
             {
                 UserProfile = profile,
@@ -683,6 +732,70 @@ namespace Bit.Api.Controllers
                 BillingAddressCountry = model.Country,
             };
             await _paymentService.SaveTaxInfoAsync(user, taxInfo);
+        }
+
+        [HttpDelete("sso/{organizationId}")]
+        public async Task DeleteSsoUser(string organizationId)
+        {
+            var userId = _userService.GetProperUserId(User);
+            if (!userId.HasValue)
+            {
+                throw new NotFoundException();
+            }
+
+            await _organizationService.DeleteSsoUserAsync(userId.Value, new Guid(organizationId));
+        }
+
+        [HttpGet("sso/user-identifier")]
+        public async Task<string> GetSsoUserIdentifier()
+        {
+            var user = await _userService.GetUserByPrincipalAsync(User);
+            var token = await _userService.GenerateSignInTokenAsync(user, TokenPurposes.LinkSso);
+            var userIdentifier = $"{user.Id},{token}";
+            return userIdentifier;
+        }
+
+        [HttpPost("api-key")]
+        public async Task<ApiKeyResponseModel> ApiKey([FromBody]ApiKeyRequestModel model)
+        {
+            var user = await _userService.GetUserByPrincipalAsync(User);
+            if (user == null)
+            {
+                throw new UnauthorizedAccessException();
+            }
+
+            if (!await _userService.CheckPasswordAsync(user, model.MasterPasswordHash))
+            {
+                await Task.Delay(2000);
+                throw new BadRequestException("MasterPasswordHash", "Invalid password.");
+            }
+            else
+            {
+                var response = new ApiKeyResponseModel(user);
+                return response;
+            }
+        }
+
+        [HttpPost("rotate-api-key")]
+        public async Task<ApiKeyResponseModel> RotateApiKey([FromBody]ApiKeyRequestModel model)
+        {
+            var user = await _userService.GetUserByPrincipalAsync(User);
+            if (user == null)
+            {
+                throw new UnauthorizedAccessException();
+            }
+
+            if (!await _userService.CheckPasswordAsync(user, model.MasterPasswordHash))
+            {
+                await Task.Delay(2000);
+                throw new BadRequestException("MasterPasswordHash", "Invalid password.");
+            }
+            else
+            {
+                await _userService.RotateApiKeyAsync(user);
+                var response = new ApiKeyResponseModel(user);
+                return response;
+            }
         }
     }
 }

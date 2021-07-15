@@ -7,6 +7,7 @@ using Dapper;
 using System.Linq;
 using System.Collections.Generic;
 using Bit.Core.Models.Data;
+using Bit.Core.Settings;
 
 namespace Bit.Core.Repositories.SqlServer
 {
@@ -19,6 +20,19 @@ namespace Bit.Core.Repositories.SqlServer
         public OrganizationRepository(string connectionString, string readOnlyConnectionString)
             : base(connectionString, readOnlyConnectionString)
         { }
+
+        public async Task<Organization> GetByIdentifierAsync(string identifier)
+        {
+            using (var connection = new SqlConnection(ConnectionString))
+            {
+                var results = await connection.QueryAsync<Organization>(
+                    "[dbo].[Organization_ReadByIdentifier]",
+                    new { Identifier = identifier },
+                    commandType: CommandType.StoredProcedure);
+
+                return results.SingleOrDefault();
+            }
+        }
 
         public async Task<ICollection<Organization>> GetManyByEnabledAsync()
         {

@@ -1,6 +1,9 @@
-﻿using System.Threading.Tasks;
+﻿using System;
+using System.Text;
+using System.Threading.Tasks;
 using Azure.Storage.Queues;
 using Bit.Core.Models.Business;
+using Bit.Core.Settings;
 using Newtonsoft.Json;
 
 namespace Bit.Core.Services
@@ -19,7 +22,7 @@ namespace Bit.Core.Services
         public AzureQueueReferenceEventService (
             GlobalSettings globalSettings)
         {
-            _queueClient = new QueueClient(globalSettings.Storage.ConnectionString, _queueName);
+            _queueClient = new QueueClient(globalSettings.Events.ConnectionString, _queueName);
             _globalSettings = globalSettings;
         }
 
@@ -38,7 +41,9 @@ namespace Bit.Core.Services
             try
             {
                 var message = JsonConvert.SerializeObject(referenceEvent, _jsonSerializerSettings);
-                await _queueClient.SendMessageAsync(message);
+                // Messages need to be base64 encoded
+                var encodedMessage = Convert.ToBase64String(Encoding.UTF8.GetBytes(message));
+                await _queueClient.SendMessageAsync(encodedMessage);
             }
             catch
             {

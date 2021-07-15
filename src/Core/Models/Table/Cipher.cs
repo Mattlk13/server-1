@@ -6,7 +6,7 @@ using System.Collections.Generic;
 
 namespace Bit.Core.Models.Table
 {
-    public class Cipher : ITableObject<Guid>
+    public class Cipher : ITableObject<Guid>, ICloneable
     {
         private Dictionary<string, CipherAttachment.MetaData> _attachmentData;
 
@@ -21,6 +21,7 @@ namespace Bit.Core.Models.Table
         public DateTime CreationDate { get; internal set; } = DateTime.UtcNow;
         public DateTime RevisionDate { get; internal set; } = DateTime.UtcNow;
         public DateTime? DeletedDate { get; internal set; }
+        public Enums.CipherRepromptType? Reprompt { get; set; }
 
         public void SetNewId()
         {
@@ -42,6 +43,10 @@ namespace Bit.Core.Models.Table
             try
             {
                 _attachmentData = JsonConvert.DeserializeObject<Dictionary<string, CipherAttachment.MetaData>>(Attachments);
+                foreach (var kvp in _attachmentData)
+                {
+                    kvp.Value.AttachmentId = kvp.Key;
+                }
                 return _attachmentData;
             }
             catch
@@ -91,6 +96,16 @@ namespace Bit.Core.Models.Table
         {
             var attachments = GetAttachments();
             return attachments?.ContainsKey(id) ?? false;
+        }
+
+        object ICloneable.Clone() => Clone();
+        public Cipher Clone()
+        {
+            var clone = CoreHelpers.CloneObject(this);
+            clone.CreationDate = CreationDate;
+            clone.RevisionDate = RevisionDate;
+
+            return clone;
         }
     }
 }

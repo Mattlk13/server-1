@@ -1,37 +1,45 @@
-﻿using Bit.Core.Enums;
+﻿using System;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+using System.Security.Claims;
+using System.Security.Cryptography.X509Certificates;
+using System.Threading.Tasks;
+using AutoMapper;
+using Bit.Core.Enums;
 using Bit.Core.Identity;
 using Bit.Core.IdentityServer;
 using Bit.Core.Models.Table;
 using Bit.Core.Repositories;
+using Bit.Core.Resources;
 using Bit.Core.Services;
+using Bit.Core.Settings;
+using Bit.Core.Utilities;
 using IdentityModel;
+using IdentityServer4.AccessTokenValidation;
+using IdentityServer4.Configuration;
+using LinqToDB.EntityFrameworkCore;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc.Localization;
+using Microsoft.Azure.Storage;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.AspNetCore.Http;
-using System;
-using System.IO;
-using SqlServerRepos = Bit.Core.Repositories.SqlServer;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
+using Serilog.Context;
 using EntityFrameworkRepos = Bit.Core.Repositories.EntityFramework;
 using NoopRepos = Bit.Core.Repositories.Noop;
-using System.Threading.Tasks;
+using SqlServerRepos = Bit.Core.Repositories.SqlServer;
 using TableStorageRepos = Bit.Core.Repositories.TableStorage;
-using Microsoft.Extensions.DependencyInjection.Extensions;
-using IdentityServer4.AccessTokenValidation;
-using System.Security.Claims;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.HttpOverrides;
-using System.Linq;
-using System.Security.Cryptography.X509Certificates;
-using Bit.Core.Utilities;
-using Serilog.Context;
-using AutoMapper;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Azure.Storage;
 
 namespace Bit.Core.Utilities
 {
@@ -39,48 +47,106 @@ namespace Bit.Core.Utilities
     {
         public static void AddSqlServerRepositories(this IServiceCollection services, GlobalSettings globalSettings)
         {
-            var usePostgreSql = CoreHelpers.SettingHasValue(globalSettings.PostgreSql?.ConnectionString);
-            var useEf = usePostgreSql;
+            var selectedDatabaseProvider = globalSettings.DatabaseProvider;
+            var provider = SupportedDatabaseProviders.SqlServer;
+            var connectionString = string.Empty;
+            if (!string.IsNullOrWhiteSpace(selectedDatabaseProvider))
+            {
+                switch (selectedDatabaseProvider.ToLowerInvariant())
+                {
+                    case "postgres":
+                    case "postgresql":
+                        provider = SupportedDatabaseProviders.Postgres;
+                        connectionString = globalSettings.PostgreSql.ConnectionString;
+                        break;
+                    case "mysql":
+                    case "mariadb":
+                        provider = SupportedDatabaseProviders.MySql;
+                        connectionString = globalSettings.MySql.ConnectionString;
+                        break;
+                    default:
+                        break;
+                }
+            }
+
+            var useEf = (provider != SupportedDatabaseProviders.SqlServer);
 
             if (useEf)
             {
+                if (string.IsNullOrWhiteSpace(connectionString))
+                {
+                    throw new Exception($"Database provider type {provider} was selected but no connection string was found.");
+                }
+                LinqToDBForEFTools.Initialize();
                 services.AddAutoMapper(typeof(EntityFrameworkRepos.UserRepository));
                 services.AddDbContext<EntityFrameworkRepos.DatabaseContext>(options =>
                 {
-                    if (usePostgreSql)
+                    if (provider == SupportedDatabaseProviders.Postgres)
                     {
-                        options.UseNpgsql(globalSettings.PostgreSql.ConnectionString);
+                        options.UseNpgsql(connectionString);
+                    } 
+                    else if (provider == SupportedDatabaseProviders.MySql)
+                    {
+                        options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString));
                     }
                 });
+                services.AddSingleton<ICipherRepository, EntityFrameworkRepos.CipherRepository>();
+                services.AddSingleton<ICollectionCipherRepository, EntityFrameworkRepos.CollectionCipherRepository>();
+                services.AddSingleton<ICollectionRepository, EntityFrameworkRepos.CollectionRepository>();
+                services.AddSingleton<IDeviceRepository, EntityFrameworkRepos.DeviceRepository>();
+                services.AddSingleton<IEmergencyAccessRepository, EntityFrameworkRepos.EmergencyAccessRepository>();
+                services.AddSingleton<IFolderRepository, EntityFrameworkRepos.FolderRepository>();
+                services.AddSingleton<IGrantRepository, EntityFrameworkRepos.GrantRepository>();
+                services.AddSingleton<IGroupRepository, EntityFrameworkRepos.GroupRepository>();
+                services.AddSingleton<IInstallationRepository, EntityFrameworkRepos.InstallationRepository>();
+                services.AddSingleton<IMaintenanceRepository, EntityFrameworkRepos.MaintenanceRepository>();
+                services.AddSingleton<IOrganizationRepository, EntityFrameworkRepos.OrganizationRepository>();
+                services.AddSingleton<IOrganizationUserRepository, EntityFrameworkRepos.OrganizationUserRepository>();
+                services.AddSingleton<IPolicyRepository, EntityFrameworkRepos.PolicyRepository>();
+                services.AddSingleton<ISendRepository, EntityFrameworkRepos.SendRepository>();
+                services.AddSingleton<ISsoConfigRepository, EntityFrameworkRepos.SsoConfigRepository>();
+                services.AddSingleton<ISsoUserRepository, EntityFrameworkRepos.SsoUserRepository>();
+                services.AddSingleton<ITaxRateRepository, EntityFrameworkRepos.TaxRateRepository>();
+                services.AddSingleton<ITransactionRepository, EntityFrameworkRepos.TransactionRepository>();
+                services.AddSingleton<IU2fRepository, EntityFrameworkRepos.U2fRepository>();
                 services.AddSingleton<IUserRepository, EntityFrameworkRepos.UserRepository>();
-                //services.AddSingleton<ICipherRepository, EntityFrameworkRepos.CipherRepository>();
-                //services.AddSingleton<IOrganizationRepository, EntityFrameworkRepos.OrganizationRepository>();
+                services.AddSingleton<IProviderRepository, EntityFrameworkRepos.ProviderRepository>();
+                services.AddSingleton<IProviderUserRepository, EntityFrameworkRepos.ProviderUserRepository>();
+                services.AddSingleton<IProviderOrganizationRepository, EntityFrameworkRepos.ProviderOrganizationRepository>();
             }
             else
             {
-                services.AddSingleton<IUserRepository, SqlServerRepos.UserRepository>();
                 services.AddSingleton<ICipherRepository, SqlServerRepos.CipherRepository>();
-                services.AddSingleton<IDeviceRepository, SqlServerRepos.DeviceRepository>();
-                services.AddSingleton<IGrantRepository, SqlServerRepos.GrantRepository>();
-                services.AddSingleton<IOrganizationRepository, SqlServerRepos.OrganizationRepository>();
-                services.AddSingleton<IOrganizationUserRepository, SqlServerRepos.OrganizationUserRepository>();
-                services.AddSingleton<ICollectionRepository, SqlServerRepos.CollectionRepository>();
-                services.AddSingleton<IFolderRepository, SqlServerRepos.FolderRepository>();
                 services.AddSingleton<ICollectionCipherRepository, SqlServerRepos.CollectionCipherRepository>();
+                services.AddSingleton<ICollectionRepository, SqlServerRepos.CollectionRepository>();
+                services.AddSingleton<IDeviceRepository, SqlServerRepos.DeviceRepository>();
+                services.AddSingleton<IEmergencyAccessRepository, SqlServerRepos.EmergencyAccessRepository>();
+                services.AddSingleton<IFolderRepository, SqlServerRepos.FolderRepository>();
+                services.AddSingleton<IGrantRepository, SqlServerRepos.GrantRepository>();
                 services.AddSingleton<IGroupRepository, SqlServerRepos.GroupRepository>();
-                services.AddSingleton<IU2fRepository, SqlServerRepos.U2fRepository>();
                 services.AddSingleton<IInstallationRepository, SqlServerRepos.InstallationRepository>();
                 services.AddSingleton<IMaintenanceRepository, SqlServerRepos.MaintenanceRepository>();
-                services.AddSingleton<ITransactionRepository, SqlServerRepos.TransactionRepository>();
+                services.AddSingleton<IOrganizationRepository, SqlServerRepos.OrganizationRepository>();
+                services.AddSingleton<IOrganizationUserRepository, SqlServerRepos.OrganizationUserRepository>();
                 services.AddSingleton<IPolicyRepository, SqlServerRepos.PolicyRepository>();
+                services.AddSingleton<ISendRepository, SqlServerRepos.SendRepository>();
                 services.AddSingleton<ISsoConfigRepository, SqlServerRepos.SsoConfigRepository>();
+                services.AddSingleton<ISsoUserRepository, SqlServerRepos.SsoUserRepository>();
+                services.AddSingleton<ITaxRateRepository, SqlServerRepos.TaxRateRepository>();
+                services.AddSingleton<IEmergencyAccessRepository, SqlServerRepos.EmergencyAccessRepository>();
+                services.AddSingleton<IProviderRepository, SqlServerRepos.ProviderRepository>();
+                services.AddSingleton<IProviderUserRepository, SqlServerRepos.ProviderUserRepository>();
+                services.AddSingleton<IProviderOrganizationRepository, SqlServerRepos.ProviderOrganizationRepository>();
+                services.AddSingleton<ITransactionRepository, SqlServerRepos.TransactionRepository>();
+                services.AddSingleton<IU2fRepository, SqlServerRepos.U2fRepository>();
+                services.AddSingleton<IUserRepository, SqlServerRepos.UserRepository>();
             }
 
             if (globalSettings.SelfHosted)
             {
                 if (useEf)
                 {
-                    // TODO
+                    services.AddSingleton<IEventRepository, EntityFrameworkRepos.EventRepository>();
                 }
                 else
                 {
@@ -105,13 +171,19 @@ namespace Bit.Core.Utilities
             services.AddScoped<ICollectionService, CollectionService>();
             services.AddScoped<IGroupService, GroupService>();
             services.AddScoped<IPolicyService, PolicyService>();
-            services.AddScoped<Services.IEventService, EventService>();
+            services.AddScoped<IEventService, EventService>();
+            services.AddScoped<IEmergencyAccessService, EmergencyAccessService>();
             services.AddSingleton<IDeviceService, DeviceService>();
             services.AddSingleton<IAppleIapService, AppleIapService>();
+            services.AddSingleton<ISsoConfigService, SsoConfigService>();
+            services.AddScoped<ISendService, SendService>();
         }
 
         public static void AddDefaultServices(this IServiceCollection services, GlobalSettings globalSettings)
         {
+            // Required for UserService
+            services.AddWebAuthn(globalSettings);
+
             services.AddSingleton<IPaymentService, StripePaymentService>();
             services.AddSingleton<IMailService, HandlebarsMailService>();
             services.AddSingleton<ILicensingService, LicensingService>();
@@ -126,7 +198,13 @@ namespace Bit.Core.Utilities
                 services.AddSingleton<IApplicationCacheService, InMemoryApplicationCacheService>();
             }
 
-            if (CoreHelpers.SettingHasValue(globalSettings.Amazon?.AccessKeySecret))
+            var awsConfigured = CoreHelpers.SettingHasValue(globalSettings.Amazon?.AccessKeySecret);
+            if (!globalSettings.SelfHosted && awsConfigured &&
+                CoreHelpers.SettingHasValue(globalSettings.Mail?.PostalApiKey))
+            {
+                services.AddSingleton<IMailDeliveryService, MultiServiceMailDeliveryService>();
+            }
+            else if (awsConfigured)
             {
                 services.AddSingleton<IMailDeliveryService, AmazonSesMailDeliveryService>();
             }
@@ -169,6 +247,15 @@ namespace Bit.Core.Utilities
                 services.AddSingleton<IBlockIpService, NoopBlockIpService>();
             }
 
+            if (!globalSettings.SelfHosted && CoreHelpers.SettingHasValue(globalSettings.Mail.ConnectionString))
+            {
+                services.AddSingleton<IMailEnqueuingService, AzureQueueMailService>();
+            }
+            else
+            {
+                services.AddSingleton<IMailEnqueuingService, BlockingMailEnqueuingService>();
+            }
+
             if (!globalSettings.SelfHosted && CoreHelpers.SettingHasValue(globalSettings.Events.ConnectionString))
             {
                 services.AddSingleton<IEventWriteService, AzureQueueEventWriteService>();
@@ -195,6 +282,19 @@ namespace Bit.Core.Utilities
                 services.AddSingleton<IAttachmentStorageService, NoopAttachmentStorageService>();
             }
 
+            if (CoreHelpers.SettingHasValue(globalSettings.Send.ConnectionString))
+            {
+                services.AddSingleton<ISendFileStorageService, AzureSendFileStorageService>();
+            }
+            else if (CoreHelpers.SettingHasValue(globalSettings.Send.BaseDirectory))
+            {
+                services.AddSingleton<ISendFileStorageService, LocalSendStorageService>();
+            }
+            else
+            {
+                services.AddSingleton<ISendFileStorageService, NoopSendFileStorageService>();
+            }
+
             if (globalSettings.SelfHosted)
             {
                 services.AddSingleton<IReferenceEventService, NoopReferenceEventService>();
@@ -203,6 +303,21 @@ namespace Bit.Core.Utilities
             {
                 services.AddSingleton<IReferenceEventService, AzureQueueReferenceEventService>();
             }
+
+            if (!globalSettings.SelfHosted && CoreHelpers.SettingHasValue(globalSettings.Captcha?.HCaptchaSecretKey) &&
+                CoreHelpers.SettingHasValue(globalSettings.Captcha?.HCaptchaSiteKey))
+            {
+                services.AddSingleton<ICaptchaValidationService, HCaptchaValidationService>();
+            }
+            else
+            {
+                services.AddSingleton<ICaptchaValidationService, NoopCaptchaValidationService>();
+            }
+        }
+
+        public static void AddOosServices(this IServiceCollection services)
+        {
+            services.AddScoped<IProviderService, NoopProviderService>();
         }
 
         public static void AddNoopServices(this IServiceCollection services)
@@ -267,7 +382,9 @@ namespace Bit.Core.Utilities
                     CoreHelpers.CustomProviderName(TwoFactorProviderType.U2f))
                 .AddTokenProvider<TwoFactorRememberTokenProvider>(
                     CoreHelpers.CustomProviderName(TwoFactorProviderType.Remember))
-                .AddTokenProvider<EmailTokenProvider<User>>(TokenOptions.DefaultEmailProvider);
+                .AddTokenProvider<EmailTokenProvider<User>>(TokenOptions.DefaultEmailProvider)
+                .AddTokenProvider<WebAuthnTokenProvider>(
+                    CoreHelpers.CustomProviderName(TwoFactorProviderType.WebAuthn));
 
             return identityBuilder;
         }
@@ -374,32 +491,14 @@ namespace Bit.Core.Utilities
         public static IIdentityServerBuilder AddIdentityServerCertificate(
             this IIdentityServerBuilder identityServerBuilder, IWebHostEnvironment env, GlobalSettings globalSettings)
         {
-            if (env.IsDevelopment())
+            var certificate = CoreHelpers.GetIdentityServerCertificate(globalSettings);
+            if (certificate != null)
+            {
+                identityServerBuilder.AddSigningCredential(certificate);
+            }
+            else if (env.IsDevelopment())
             {
                 identityServerBuilder.AddDeveloperSigningCredential(false);
-            }
-            else if (globalSettings.SelfHosted &&
-                CoreHelpers.SettingHasValue(globalSettings.IdentityServer.CertificatePassword)
-                && File.Exists("identity.pfx"))
-            {
-                var identityServerCert = CoreHelpers.GetCertificate("identity.pfx",
-                    globalSettings.IdentityServer.CertificatePassword);
-                identityServerBuilder.AddSigningCredential(identityServerCert);
-            }
-            else if (CoreHelpers.SettingHasValue(globalSettings.IdentityServer.CertificateThumbprint))
-            {
-                var identityServerCert = CoreHelpers.GetCertificate(
-                    globalSettings.IdentityServer.CertificateThumbprint);
-                identityServerBuilder.AddSigningCredential(identityServerCert);
-            }
-            else if (!globalSettings.SelfHosted &&
-                CoreHelpers.SettingHasValue(globalSettings.Storage?.ConnectionString) &&
-                CoreHelpers.SettingHasValue(globalSettings.IdentityServer.CertificatePassword))
-            {
-                var storageAccount = CloudStorageAccount.Parse(globalSettings.Storage.ConnectionString);
-                var identityServerCert = CoreHelpers.GetBlobCertificateAsync(storageAccount, "certificates",
-                    "identity.pfx", globalSettings.IdentityServer.CertificatePassword).GetAwaiter().GetResult();
-                identityServerBuilder.AddSigningCredential(identityServerCert);
             }
             else
             {
@@ -414,6 +513,7 @@ namespace Bit.Core.Utilities
             var globalSettings = new GlobalSettings();
             ConfigurationBinder.Bind(configuration.GetSection("GlobalSettings"), globalSettings);
             services.AddSingleton(s => globalSettings);
+            services.AddSingleton<IGlobalSettings, GlobalSettings>(s => globalSettings);
             return globalSettings;
         }
 
@@ -469,6 +569,70 @@ namespace Bit.Core.Utilities
                 options.ForwardLimit = null;
             }
             app.UseForwardedHeaders(options);
+        }
+
+        public static void AddCoreLocalizationServices(this IServiceCollection services)
+        {
+            services.AddTransient<II18nService, I18nService>();
+            services.AddLocalization(options => options.ResourcesPath = "Resources");
+        }
+
+        public static IApplicationBuilder UseCoreLocalization(this IApplicationBuilder app)
+        {
+            var supportedCultures = new[] { "en" };
+            return app.UseRequestLocalization(options => options
+                .SetDefaultCulture(supportedCultures[0])
+                .AddSupportedCultures(supportedCultures)
+                .AddSupportedUICultures(supportedCultures));
+        }
+
+        public static IMvcBuilder AddViewAndDataAnnotationLocalization(this IMvcBuilder mvc)
+        {
+            mvc.Services.AddTransient<IViewLocalizer, I18nViewLocalizer>();
+            return mvc.AddViewLocalization(options => options.ResourcesPath = "Resources")
+                .AddDataAnnotationsLocalization(options =>
+                    options.DataAnnotationLocalizerProvider = (type, factory) =>
+                    {
+                        var assemblyName = new AssemblyName(typeof(SharedResources).GetTypeInfo().Assembly.FullName);
+                        return factory.Create("SharedResources", assemblyName.Name);
+                    });
+        }
+
+        public static IServiceCollection AddDistributedIdentityServices(this IServiceCollection services, GlobalSettings globalSettings)
+        {
+            if (string.IsNullOrWhiteSpace(globalSettings.IdentityServer?.RedisConnectionString))
+            {
+                services.AddDistributedMemoryCache();
+            }
+            else
+            {
+                services.AddDistributedRedisCache(options =>
+                    options.Configuration = globalSettings.IdentityServer.RedisConnectionString);
+            }
+
+            services.AddOidcStateDataFormatterCache();
+            services.AddSession();
+            services.ConfigureApplicationCookie(configure => configure.CookieManager = new DistributedCacheCookieManager());
+            services.ConfigureExternalCookie(configure => configure.CookieManager = new DistributedCacheCookieManager());
+            services.AddSingleton<IPostConfigureOptions<CookieAuthenticationOptions>>(
+                svcs => new ConfigureOpenIdConnectDistributedOptions(
+                    svcs.GetRequiredService<IHttpContextAccessor>(),
+                    globalSettings,
+                    svcs.GetRequiredService<IdentityServerOptions>())
+            );
+
+            return services;
+        }
+
+        public static void AddWebAuthn(this IServiceCollection services, GlobalSettings globalSettings)
+        {
+            services.AddFido2(options =>
+            {
+                options.ServerDomain = new Uri(globalSettings.BaseServiceUri.Vault).Host;
+                options.ServerName = "Bitwarden";
+                options.Origin = globalSettings.BaseServiceUri.Vault;
+                options.TimestampDriftTolerance = 300000;
+            });
         }
     }
 }

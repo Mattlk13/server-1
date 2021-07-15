@@ -1,9 +1,9 @@
-﻿using Bit.Core;
-using Bit.Core.Enums;
+﻿using Bit.Core.Enums;
 using Bit.Core.Models.Business;
 using Bit.Core.Models.Table;
 using Bit.Core.Repositories;
 using Bit.Core.Services;
+using Bit.Core.Settings;
 using Bit.Core.Utilities;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
@@ -24,6 +24,7 @@ namespace Bit.Billing.Controllers
     public class StripeController : Controller
     {
         private const decimal PremiumPlanAppleIapPrice = 14.99M;
+        private const string PremiumPlanId = "premium-annually";
 
         private readonly BillingSettings _billingSettings;
         private readonly IWebHostEnvironment _hostingEnvironment;
@@ -36,6 +37,8 @@ namespace Bit.Billing.Controllers
         private readonly ILogger<StripeController> _logger;
         private readonly Braintree.BraintreeGateway _btGateway;
         private readonly IReferenceEventService _referenceEventService;
+        private readonly ITaxRateRepository _taxRateRepository;
+        private readonly IUserRepository _userRepository;
 
         public StripeController(
             GlobalSettings globalSettings,
@@ -48,7 +51,9 @@ namespace Bit.Billing.Controllers
             IAppleIapService appleIapService,
             IMailService mailService,
             IReferenceEventService referenceEventService,
-            ILogger<StripeController> logger)
+            ILogger<StripeController> logger,
+            ITaxRateRepository taxRateRepository,
+            IUserRepository userRepository)
         {
             _billingSettings = billingSettings?.Value;
             _hostingEnvironment = hostingEnvironment;
@@ -59,6 +64,8 @@ namespace Bit.Billing.Controllers
             _appleIapService = appleIapService;
             _mailService = mailService;
             _referenceEventService = referenceEventService;
+            _taxRateRepository = taxRateRepository;
+            _userRepository = userRepository;
             _logger = logger;
             _btGateway = new Braintree.BraintreeGateway
             {
@@ -149,6 +156,8 @@ namespace Bit.Billing.Controllers
                 {
                     throw new Exception("Invoice subscription is null. " + invoice.Id);
                 }
+
+                subscription = await VerifyCorrectTaxRateForCharge(invoice, subscription);
 
                 string email = null;
                 var ids = GetIdsFromMetaData(subscription.Metadata);
@@ -376,26 +385,33 @@ namespace Bit.Billing.Controllers
                             if (subscription.Items.Any(i => StaticStore.Plans.Any(p => p.StripePlanId == i.Plan.Id)))
                             {
                                 await _organizationService.EnableAsync(ids.Item1.Value, subscription.CurrentPeriodEnd);
+
+                                var organization = await _organizationRepository.GetByIdAsync(ids.Item1.Value);
+                                await _referenceEventService.RaiseEventAsync(
+                                    new ReferenceEvent(ReferenceEventType.Rebilled, organization)
+                                    {
+                                        PlanName = organization?.Plan,
+                                        PlanType = organization?.PlanType,
+                                        Seats = organization?.Seats,
+                                        Storage = organization?.MaxStorageGb,
+                                    });
                             }
                         }
                         // user
                         else if (ids.Item2.HasValue)
                         {
-                            if (subscription.Items.Any(i => i.Plan.Id == "premium-annually"))
+                            if (subscription.Items.Any(i => i.Plan.Id == PremiumPlanId))
                             {
                                 await _userService.EnablePremiumAsync(ids.Item2.Value, subscription.CurrentPeriodEnd);
+
+                                var user = await _userRepository.GetByIdAsync(ids.Item2.Value);
+                                await _referenceEventService.RaiseEventAsync(
+                                    new ReferenceEvent(ReferenceEventType.Rebilled, user)
+                                    {
+                                        PlanName = PremiumPlanId,
+                                        Storage = user?.MaxStorageGb,
+                                    });
                             }
-                        }
-                        if (ids.Item1.HasValue || ids.Item2.HasValue)
-                        {
-                            await _referenceEventService.RaiseEventAsync(
-                                new ReferenceEvent(ReferenceEventType.Rebilled, null)
-                                {
-                                    Id = ids.Item1 ?? ids.Item2 ?? default,
-                                    Source = ids.Item1.HasValue
-                                        ? ReferenceEventSource.Organization
-                                        : ReferenceEventSource.User,
-                                });
                         }
                     }
                 }
@@ -738,6 +754,32 @@ namespace Bit.Billing.Controllers
             if (subscription == null)
             {
                 throw new Exception("Subscription is null. " + eventSubscription.Id);
+            }
+            return subscription;
+        }
+
+        private async Task<Subscription> VerifyCorrectTaxRateForCharge(Invoice invoice, Subscription subscription)
+        {
+            if (!string.IsNullOrWhiteSpace(invoice?.CustomerAddress?.Country) && !string.IsNullOrWhiteSpace(invoice?.CustomerAddress?.PostalCode))
+            {
+                var localBitwardenTaxRates = await _taxRateRepository.GetByLocationAsync(
+                    new Bit.Core.Models.Table.TaxRate() 
+                    { 
+                        Country = invoice.CustomerAddress.Country,
+                        PostalCode = invoice.CustomerAddress.PostalCode 
+                    }
+                );
+
+                if (localBitwardenTaxRates.Any())
+                {
+                    var stripeTaxRate = await new TaxRateService().GetAsync(localBitwardenTaxRates.First().Id);
+                    if (stripeTaxRate != null && !subscription.DefaultTaxRates.Any(x => x == stripeTaxRate))
+                    {
+                        subscription.DefaultTaxRates = new List<Stripe.TaxRate> { stripeTaxRate };
+                        var subscriptionOptions = new SubscriptionUpdateOptions() { DefaultTaxRates = new List<string>() { stripeTaxRate.Id } };
+                        subscription = await new SubscriptionService().UpdateAsync(subscription.Id, subscriptionOptions);
+                    }
+                }
             }
             return subscription;
         }

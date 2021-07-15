@@ -6,6 +6,7 @@ using Bit.Core.Models.Data;
 using Bit.Core.Models.Table;
 using Bit.Core.Utilities;
 using Microsoft.Azure.Cosmos.Table;
+using Bit.Core.Settings;
 
 namespace Bit.Core.Repositories.TableStorage
 {
@@ -43,6 +44,19 @@ namespace Bit.Core.Repositories.TableStorage
                 $"ActingUserId={actingUserId}__Date={{0}}", startDate, endDate, pageOptions);
         }
 
+        public async Task<PagedResult<IEvent>> GetManyByProviderAsync(Guid providerId,
+            DateTime startDate, DateTime endDate, PageOptions pageOptions)
+        {
+            return await GetManyAsync($"ProviderId={providerId}", "Date={0}", startDate, endDate, pageOptions);
+        }
+
+        public async Task<PagedResult<IEvent>> GetManyByProviderActingUserAsync(Guid providerId, Guid actingUserId,
+            DateTime startDate, DateTime endDate, PageOptions pageOptions)
+        {
+            return await GetManyAsync($"ProviderId={providerId}",
+                $"ActingUserId={actingUserId}__Date={{0}}", startDate, endDate, pageOptions);
+        }
+
         public async Task<PagedResult<IEvent>> GetManyByCipherAsync(Cipher cipher, DateTime startDate, DateTime endDate,
             PageOptions pageOptions)
         {
@@ -61,14 +75,14 @@ namespace Bit.Core.Repositories.TableStorage
             await CreateEntityAsync(entity);
         }
 
-        public async Task CreateManyAsync(IList<IEvent> e)
+        public async Task CreateManyAsync(IEnumerable<IEvent> e)
         {
             if (!e?.Any() ?? true)
             {
                 return;
             }
 
-            if (e.Count == 1)
+            if (!e.Skip(1).Any())
             {
                 await CreateAsync(e.First());
                 return;

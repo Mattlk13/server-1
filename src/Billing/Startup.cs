@@ -3,7 +3,8 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Bit.Core;
+using Bit.Core.Context;
+using Bit.Core.Settings;
 using Stripe;
 using Bit.Core.Utilities;
 using Microsoft.AspNetCore.Http;
@@ -46,7 +47,7 @@ namespace Bit.Billing
             services.AddSingleton<BitPayClient>();
 
             // Context
-            services.AddScoped<CurrentContext>();
+            services.AddScoped<ICurrentContext, CurrentContext>();
 
             // Identity
             services.AddCustomIdentityServices(globalSettings);
@@ -64,6 +65,9 @@ namespace Bit.Billing
                 config.Filters.Add(new LoggingExceptionHandlerFilterAttribute());
             });
             services.Configure<RouteOptions>(options => options.LowercaseUrls = true);
+
+            // Authentication
+            services.AddAuthentication();
 
             // Jobs service, uncomment when we have some jobs to run
             // Jobs.JobsHostedService.AddJobsServices(services);

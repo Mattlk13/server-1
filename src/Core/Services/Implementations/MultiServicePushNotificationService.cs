@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Http;
 using Bit.Core.Utilities;
 using Microsoft.Extensions.Logging;
 using Bit.Core.Repositories;
+using Bit.Core.Settings;
 
 namespace Bit.Core.Services
 {
@@ -119,6 +120,24 @@ namespace Bit.Core.Services
         public Task PushLogOutAsync(Guid userId)
         {
             PushToServices((s) => s.PushLogOutAsync(userId));
+            return Task.FromResult(0);
+        }
+
+        public Task PushSyncSendCreateAsync(Send send)
+        {
+            PushToServices((s) => s.PushSyncSendCreateAsync(send));
+            return Task.FromResult(0);
+        }
+
+        public Task PushSyncSendUpdateAsync(Send send)
+        {
+            PushToServices((s) => s.PushSyncSendUpdateAsync(send));
+            return Task.FromResult(0);
+        }
+
+        public Task PushSyncSendDeleteAsync(Send send)
+        {
+            PushToServices((s) => s.PushSyncSendDeleteAsync(send));
             return Task.FromResult(0);
         }
 

@@ -1,10 +1,12 @@
 ﻿using System;
 using Bit.Core.Models.Table;
+using Bit.Core.Settings;
 using System.Threading.Tasks;
 using System.Data.SqlClient;
 using System.Data;
 using Dapper;
 using System.Linq;
+using System.Collections.Generic;
 
 namespace Bit.Core.Repositories.SqlServer
 {
@@ -41,6 +43,19 @@ namespace Bit.Core.Repositories.SqlServer
                     commandType: CommandType.StoredProcedure);
 
                 return results.SingleOrDefault();
+            }
+        }
+
+        public async Task<ICollection<SsoConfig>> GetManyByRevisionNotBeforeDate(DateTime? notBefore)
+        {
+            using (var connection = new SqlConnection(ConnectionString))
+            {
+                var results = await connection.QueryAsync<SsoConfig>(
+                    $"[{Schema}].[{Table}_ReadManyByNotBeforeRevisionDate]",
+                    new { NotBefore = notBefore },
+                    commandType: CommandType.StoredProcedure);
+
+                return results.ToList();
             }
         }
     }

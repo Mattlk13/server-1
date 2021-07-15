@@ -4,7 +4,7 @@ using Bit.Core.Models.Data;
 using System.Collections.Generic;
 using System.Linq;
 using Bit.Core.Models.Table;
-
+using Bit.Core.Utilities;
 namespace Bit.Core.Models.Api
 {
     public class OrganizationUserResponseModel : ResponseModel
@@ -22,6 +22,8 @@ namespace Bit.Core.Models.Api
             Type = organizationUser.Type;
             Status = organizationUser.Status;
             AccessAll = organizationUser.AccessAll;
+            Permissions = CoreHelpers.LoadClassFromJsonData<Permissions>(organizationUser.Permissions);
+            ResetPasswordEnrolled = !string.IsNullOrEmpty(organizationUser.ResetPasswordKey);
         }
 
         public OrganizationUserResponseModel(OrganizationUserUserDetails organizationUser, string obj = "organizationUser")
@@ -37,6 +39,8 @@ namespace Bit.Core.Models.Api
             Type = organizationUser.Type;
             Status = organizationUser.Status;
             AccessAll = organizationUser.AccessAll;
+            Permissions = CoreHelpers.LoadClassFromJsonData<Permissions>(organizationUser.Permissions);
+            ResetPasswordEnrolled = !string.IsNullOrEmpty(organizationUser.ResetPasswordKey);
         }
 
         public string Id { get; set; }
@@ -44,6 +48,8 @@ namespace Bit.Core.Models.Api
         public OrganizationUserType Type { get; set; }
         public OrganizationUserStatusType Status { get; set; }
         public bool AccessAll { get; set; }
+        public Permissions Permissions { get; set; }
+        public bool ResetPasswordEnrolled { get; set; }
     }
 
     public class OrganizationUserDetailsResponseModel : OrganizationUserResponseModel
@@ -72,10 +78,62 @@ namespace Bit.Core.Models.Api
             Name = organizationUser.Name;
             Email = organizationUser.Email;
             TwoFactorEnabled = twoFactorEnabled;
+            SsoBound = !string.IsNullOrWhiteSpace(organizationUser.SsoExternalId);
         }
 
         public string Name { get; set; }
         public string Email { get; set; }
         public bool TwoFactorEnabled { get; set; }
+        public bool SsoBound { get; set; }
+    }
+
+    public class OrganizationUserResetPasswordDetailsResponseModel : ResponseModel
+    {
+        public OrganizationUserResetPasswordDetailsResponseModel(OrganizationUserResetPasswordDetails orgUser,
+            string obj = "organizationUserResetPasswordDetails") : base(obj)
+        {
+            if (orgUser == null)
+            {
+                throw new ArgumentNullException(nameof(orgUser));
+            }
+
+            Kdf = orgUser.Kdf;
+            KdfIterations = orgUser.KdfIterations;
+            ResetPasswordKey = orgUser.ResetPasswordKey;
+            EncryptedPrivateKey = orgUser.EncryptedPrivateKey;
+        }
+        
+        public KdfType Kdf { get; set; }
+        public int KdfIterations { get; set; }
+        public string ResetPasswordKey { get; set; }
+        public string EncryptedPrivateKey { get; set; }
+    }
+
+    public class OrganizationUserPublicKeyResponseModel : ResponseModel
+    {
+        public OrganizationUserPublicKeyResponseModel(Guid id, Guid userId,
+            string key, string obj = "organizationUserPublicKeyResponseModel") :
+            base(obj)
+        {
+            Id = id;
+            UserId = userId;
+            Key = key;
+        }
+
+        public Guid Id { get; set; }
+        public Guid UserId { get; set; }
+        public string Key { get; set; }
+    }
+
+    public class OrganizationUserBulkResponseModel : ResponseModel
+    {
+        public OrganizationUserBulkResponseModel(Guid id, string error,
+            string obj = "OrganizationBulkConfirmResponseModel") : base(obj)
+        {
+            Id = id;
+            Error = error;
+        }
+        public Guid Id { get; set; }
+        public string Error { get; set; }
     }
 }
