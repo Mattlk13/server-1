@@ -1,17 +1,13 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
-  <PropertyGroup>
-    <TargetFramework>netcoreapp3.1</TargetFramework>
-    <RootNamespace>Bit.Migrator</RootNamespace>
-  </PropertyGroup>
-
   <ItemGroup>
     <EmbeddedResource Include="DbScripts\**\*.sql" />
+    <EmbeddedResource Include="DbScripts_transition\**\*.sql" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="dbup-sqlserver" Version="4.4.0" />
-    <PackageReference Include="Microsoft.Extensions.Logging" Version="3.1.5" />
+    <PackageReference Include="dbup-sqlserver" Version="5.0.37" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="6.0.0" />
   </ItemGroup>
 
   <ItemGroup>

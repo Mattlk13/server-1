@@ -31,6 +31,13 @@ BEGIN
     WHERE
         [UserId] = @Id
 
+    -- Delete AuthRequest, must be before Device
+    DELETE
+    FROM
+        [dbo].[AuthRequest]
+    WHERE 
+        [UserId] = @Id
+
     -- Delete devices
     DELETE
     FROM
@@ -43,7 +50,7 @@ BEGIN
         CU
     FROM
         [dbo].[CollectionUser] CU
-    INNER JOIN
+        INNER JOIN
         [dbo].[OrganizationUser] OU ON OU.[Id] = CU.[OrganizationUserId]
     WHERE
         OU.[UserId] = @Id
@@ -53,10 +60,20 @@ BEGIN
         GU
     FROM
         [dbo].[GroupUser] GU
-    INNER JOIN
+        INNER JOIN
         [dbo].[OrganizationUser] OU ON OU.[Id] = GU.[OrganizationUserId]
     WHERE
         OU.[UserId] = @Id
+
+    -- Delete AccessPolicy
+    DELETE
+        AP
+    FROM
+        [dbo].[AccessPolicy] AP
+        INNER JOIN
+        [dbo].[OrganizationUser] OU ON OU.[Id] = AP.[OrganizationUserId]
+    WHERE
+        [UserId] = @Id
 
     -- Delete organization users
     DELETE
@@ -65,11 +82,34 @@ BEGIN
     WHERE
         [UserId] = @Id
 
-    -- Delete U2F logins
+    -- Delete provider users
     DELETE
     FROM
-        [dbo].[U2f]
+        [dbo].[ProviderUser]
     WHERE
+        [UserId] = @Id
+
+    -- Delete SSO Users
+    DELETE
+    FROM
+        [dbo].[SsoUser]
+    WHERE
+        [UserId] = @Id
+
+    -- Delete Emergency Accesses
+    DELETE
+    FROM
+        [dbo].[EmergencyAccess]
+    WHERE
+        [GrantorId] = @Id
+        OR
+        [GranteeId] = @Id
+
+    -- Delete Sends
+    DELETE
+    FROM
+        [dbo].[Send]
+    WHERE 
         [UserId] = @Id
 
     -- Finally, delete the user

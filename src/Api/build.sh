@@ -10,10 +10,6 @@ echo ".NET Core version $(dotnet --version)"
 echo "Restore"
 dotnet restore "$DIR/Api.csproj"
 echo "Clean"
-dotnet clean "$DIR/Api.csproj" -c "Release" -o "$DIR/obj/Docker/publish/Api"
+dotnet clean "$DIR/Api.csproj" -c "Release" -o "$DIR/obj/build-output/publish"
 echo "Publish"
-dotnet publish "$DIR/Api.csproj" -c "Release" -o "$DIR/obj/Docker/publish/Api"
-
-echo -e "\nBuilding docker image"
-docker --version
-docker build -t bitwarden/api "$DIR/."
+dotnet publish "$DIR/Api.csproj" -c "Release" -o "$DIR/obj/build-output/publish"

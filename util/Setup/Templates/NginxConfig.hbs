@@ -88,9 +88,27 @@ server {
     proxy_pass http://web:5000/duo-connector.html;
   }
 
-  location = /u2f-connector.html {
-    proxy_pass http://web:5000/u2f-connector.html;
+  location = /webauthn-connector.html {
+    proxy_pass http://web:5000/webauthn-connector.html;
   }
+
+  location = /webauthn-fallback-connector.html {
+    proxy_pass http://web:5000/webauthn-fallback-connector.html;
+  }
+
+  location = /sso-connector.html {
+    proxy_pass http://web:5000/sso-connector.html;
+  }
+
+{{#if Captcha}}
+  location = /captcha-connector.html {
+    proxy_pass http://web:5000/captcha-connector.html;
+  }
+
+  location = /captcha-mobile-connector.html {
+    proxy_pass http://web:5000/captcha-mobile-connector.html;
+  }
+{{/if}}
 
   location /attachments/ {
     proxy_pass http://attachments:5000/;
@@ -98,14 +116,6 @@ server {
 
   location /api/ {
     proxy_pass http://api:5000/;
-  }
-
-  location /identity/ {
-    proxy_pass http://identity:5000/;
-  }
-
-  location /sso/ {
-    proxy_pass http://sso:5000/;
   }
 
   location /icons/ {
@@ -122,8 +132,32 @@ server {
     proxy_set_header Connection $http_connection;
   }
 
+  location /notifications/anonymous-hub {
+    proxy_pass http://notifications:5000/anonymous-hub;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection $http_connection;
+  }
+
   location /events/ {
     proxy_pass http://events:5000/;
+  }
+
+  location /sso {
+    proxy_pass http://sso:5000;
+{{#if Ssl}}
+    include /etc/nginx/security-headers-ssl.conf;
+{{/if}}
+    include /etc/nginx/security-headers.conf;
+    add_header X-Frame-Options SAMEORIGIN;
+  }
+
+  location /identity {
+    proxy_pass http://identity:5000;
+{{#if Ssl}}
+    include /etc/nginx/security-headers-ssl.conf;
+{{/if}}
+    include /etc/nginx/security-headers.conf;
+    add_header X-Frame-Options SAMEORIGIN;
   }
 
   location /admin {
@@ -134,4 +168,16 @@ server {
     include /etc/nginx/security-headers.conf;
     add_header X-Frame-Options SAMEORIGIN;
   }
+
+{{#if EnableKeyConnector}}
+  location /key-connector/ {
+    proxy_pass http://key-connector:5000/;
+  }
+{{/if}}
+{{#if EnableScim}}
+
+  location /scim/ {
+    proxy_pass http://scim:5000/;
+  }
+{{/if}}
 }

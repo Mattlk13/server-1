@@ -1,17 +1,25 @@
 ﻿CREATE PROCEDURE [dbo].[Event_Create]
-    @Id UNIQUEIDENTIFIER,
+    @Id UNIQUEIDENTIFIER OUTPUT,
     @Type INT,
     @UserId UNIQUEIDENTIFIER,
     @OrganizationId UNIQUEIDENTIFIER,
+    @InstallationId UNIQUEIDENTIFIER,
+    @ProviderId UNIQUEIDENTIFIER,
     @CipherId UNIQUEIDENTIFIER,
     @CollectionId UNIQUEIDENTIFIER,
     @PolicyId UNIQUEIDENTIFIER,
     @GroupId UNIQUEIDENTIFIER,
     @OrganizationUserId UNIQUEIDENTIFIER,
+    @ProviderUserId UNIQUEIDENTIFIER,
+    @ProviderOrganizationId UNIQUEIDENTIFIER = null,
     @ActingUserId UNIQUEIDENTIFIER,
     @DeviceType SMALLINT,
     @IpAddress VARCHAR(50),
-    @Date DATETIME2(7)
+    @Date DATETIME2(7),
+    @SystemUser TINYINT = null,
+    @DomainName VARCHAR(256),
+    @SecretId UNIQUEIDENTIFIER = null,
+    @ServiceAccountId UNIQUEIDENTIFIER = null
 AS
 BEGIN
     SET NOCOUNT ON
@@ -22,15 +30,23 @@ BEGIN
         [Type],
         [UserId],
         [OrganizationId],
+        [InstallationId],
+        [ProviderId],
         [CipherId],
         [CollectionId],
         [PolicyId],
         [GroupId],
         [OrganizationUserId],
+        [ProviderUserId],
+        [ProviderOrganizationId],
         [ActingUserId],
         [DeviceType],
         [IpAddress],
-        [Date]
+        [Date],
+        [SystemUser],
+        [DomainName],
+        [SecretId],
+        [ServiceAccountId]
     )
     VALUES
     (
@@ -38,14 +54,22 @@ BEGIN
         @Type,
         @UserId,
         @OrganizationId,
+        @InstallationId,
+        @ProviderId,
         @CipherId,
         @CollectionId,
         @PolicyId,
         @GroupId,
         @OrganizationUserId,
+        @ProviderUserId,
+        @ProviderOrganizationId,
         @ActingUserId,
         @DeviceType,
         @IpAddress,
-        @Date
+        @Date,
+        @SystemUser,
+        @DomainName,
+        @SecretId,
+        @ServiceAccountId
     )
 END

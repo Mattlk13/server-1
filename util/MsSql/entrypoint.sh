@@ -40,6 +40,13 @@ then
     export SA_PASSWORD=$(cat $SA_PASSWORD_FILE)
 fi
 
+# Replace database name in backup-db.sql
+if [ ! -z "$DATABASE" ]
+then
+  sed -i "/^SET @DatabaseName =/s/'[^']*'/'$DATABASE'/" backup-db.sql
+  sed -i "/^SET @DatabaseNameSafe =/s/'[^']*'/'${DATABASE// /-}'/" backup-db.sql
+fi
+
 # The rest...
 
 mkdir -p /etc/bitwarden/mssql/backups

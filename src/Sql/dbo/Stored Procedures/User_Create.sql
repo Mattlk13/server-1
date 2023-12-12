@@ -1,7 +1,7 @@
 ﻿CREATE PROCEDURE [dbo].[User_Create]
-    @Id UNIQUEIDENTIFIER,
+    @Id UNIQUEIDENTIFIER OUTPUT,
     @Name NVARCHAR(50),
-    @Email NVARCHAR(50),
+    @Email NVARCHAR(256),
     @EmailVerified BIT,
     @MasterPassword NVARCHAR(300),
     @MasterPasswordHint NVARCHAR(50),
@@ -27,8 +27,20 @@
     @LicenseKey VARCHAR(100),
     @Kdf TINYINT,
     @KdfIterations INT,
+    @KdfMemory INT = NULL,
+    @KdfParallelism INT = NULL,
     @CreationDate DATETIME2(7),
-    @RevisionDate DATETIME2(7)
+    @RevisionDate DATETIME2(7),
+    @ApiKey VARCHAR(30),
+    @ForcePasswordReset BIT = 0,
+    @UsesKeyConnector BIT = 0,
+    @FailedLoginCount INT = 0,
+    @LastFailedLoginDate DATETIME2(7),
+    @AvatarColor VARCHAR(7) = NULL,
+    @LastPasswordChangeDate DATETIME2(7) = NULL,
+    @LastKdfChangeDate DATETIME2(7) = NULL,
+    @LastKeyRotationDate DATETIME2(7) = NULL,
+    @LastEmailChangeDate DATETIME2(7) = NULL
 AS
 BEGIN
     SET NOCOUNT ON
@@ -64,7 +76,19 @@ BEGIN
         [Kdf],
         [KdfIterations],
         [CreationDate],
-        [RevisionDate]
+        [RevisionDate],
+        [ApiKey],
+        [ForcePasswordReset],
+        [UsesKeyConnector],
+        [FailedLoginCount],
+        [LastFailedLoginDate],
+        [AvatarColor],
+        [KdfMemory],
+        [KdfParallelism],
+        [LastPasswordChangeDate],
+        [LastKdfChangeDate],
+        [LastKeyRotationDate],
+        [LastEmailChangeDate]
     )
     VALUES
     (
@@ -97,6 +121,18 @@ BEGIN
         @Kdf,
         @KdfIterations,
         @CreationDate,
-        @RevisionDate
+        @RevisionDate,
+        @ApiKey,
+        @ForcePasswordReset,
+        @UsesKeyConnector,
+        @FailedLoginCount,
+        @LastFailedLoginDate,
+        @AvatarColor,
+        @KdfMemory,
+        @KdfParallelism,
+        @LastPasswordChangeDate,
+        @LastKdfChangeDate,
+        @LastKeyRotationDate,
+        @LastEmailChangeDate
     )
 END

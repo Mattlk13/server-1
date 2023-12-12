@@ -1,15 +1,18 @@
 ﻿CREATE PROCEDURE [dbo].[OrganizationUser_Create]
-    @Id UNIQUEIDENTIFIER,
+    @Id UNIQUEIDENTIFIER OUTPUT,
     @OrganizationId UNIQUEIDENTIFIER,
     @UserId UNIQUEIDENTIFIER,
-    @Email NVARCHAR(50),
+    @Email NVARCHAR(256),
     @Key VARCHAR(MAX),
-    @Status TINYINT,
+    @Status SMALLINT,
     @Type TINYINT,
     @AccessAll BIT,
     @ExternalId NVARCHAR(300),
     @CreationDate DATETIME2(7),
-    @RevisionDate DATETIME2(7)
+    @RevisionDate DATETIME2(7),
+    @Permissions NVARCHAR(MAX),
+    @ResetPasswordKey VARCHAR(MAX),
+    @AccessSecretsManager BIT = 0
 AS
 BEGIN
     SET NOCOUNT ON
@@ -26,7 +29,10 @@ BEGIN
         [AccessAll],
         [ExternalId],
         [CreationDate],
-        [RevisionDate]
+        [RevisionDate],
+        [Permissions],
+        [ResetPasswordKey],
+        [AccessSecretsManager]
     )
     VALUES
     (
@@ -40,6 +46,9 @@ BEGIN
         @AccessAll,
         @ExternalId,
         @CreationDate,
-        @RevisionDate
+        @RevisionDate,
+        @Permissions,
+        @ResetPasswordKey,
+        @AccessSecretsManager
     )
 END

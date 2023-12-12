@@ -1,12 +1,14 @@
 ﻿CREATE PROCEDURE [dbo].[User_ReadKdfByEmail]
-    @Email NVARCHAR(50)
+    @Email NVARCHAR(256)
 AS
 BEGIN
     SET NOCOUNT ON
 
     SELECT
         [Kdf],
-        [KdfIterations]
+        [KdfIterations],
+        [KdfMemory],
+        [KdfParallelism]
     FROM
         [dbo].[User]
     WHERE

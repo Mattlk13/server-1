@@ -1,12 +1,15 @@
 ﻿CREATE PROCEDURE [dbo].[Device_Create]
-    @Id UNIQUEIDENTIFIER,
+    @Id UNIQUEIDENTIFIER OUTPUT,
     @UserId UNIQUEIDENTIFIER,
     @Name NVARCHAR(50),
     @Type TINYINT,
     @Identifier NVARCHAR(50),
     @PushToken NVARCHAR(255),
     @CreationDate DATETIME2(7),
-    @RevisionDate DATETIME2(7)
+    @RevisionDate DATETIME2(7),
+    @EncryptedUserKey VARCHAR(MAX) = NULL,
+    @EncryptedPublicKey VARCHAR(MAX) = NULL,
+    @EncryptedPrivateKey VARCHAR(MAX) = NULL
 AS
 BEGIN
     SET NOCOUNT ON
@@ -20,7 +23,10 @@ BEGIN
         [Identifier],
         [PushToken],
         [CreationDate],
-        [RevisionDate]
+        [RevisionDate],
+        [EncryptedUserKey],
+        [EncryptedPublicKey],
+        [EncryptedPrivateKey]
     )
     VALUES
     (
@@ -31,6 +37,9 @@ BEGIN
         @Identifier,
         @PushToken,
         @CreationDate,
-        @RevisionDate
+        @RevisionDate,
+        @EncryptedUserKey,
+        @EncryptedPublicKey,
+        @EncryptedPrivateKey
     )
 END

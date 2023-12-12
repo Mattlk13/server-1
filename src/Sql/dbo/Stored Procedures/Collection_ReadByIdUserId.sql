@@ -4,12 +4,25 @@
 AS
 BEGIN
     SET NOCOUNT ON
-    SELECT TOP 1
-        *
+    SELECT
+        Id,
+        OrganizationId,
+        [Name],
+        CreationDate,
+        RevisionDate,
+        ExternalId,
+        MIN([ReadOnly]) AS [ReadOnly],
+        MIN([HidePasswords]) AS [HidePasswords],
+        MIN([Manage]) AS [Manage]
     FROM
         [dbo].[UserCollectionDetails](@UserId)
     WHERE
         [Id] = @Id
-    ORDER BY
-        [ReadOnly] ASC
+    GROUP BY
+        Id,
+        OrganizationId,
+        [Name],
+        CreationDate,
+        RevisionDate,
+        ExternalId
 END
